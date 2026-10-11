@@ -1,0 +1,1 @@
+WINDOWS: Extraia o ZIP. Abra a pasta Pulso e clique duas vezes em INICIAR.bat. O navegador abrira automaticamente. Mantenha a janela preta aberta. Seus dados ficam na pasta data: preserve e faca backup dessa pasta.
