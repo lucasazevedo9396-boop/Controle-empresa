@@ -1,5 +1,6 @@
 import json
 import os
+import re
 import sqlite3
 from datetime import date, timedelta
 from decimal import Decimal, InvalidOperation
@@ -34,7 +35,7 @@ def money(value):
         raise ValueError('Valor monetário inválido.')
 
 
-def add_sale(data):
+def validate_sale(data):
     product = str(data.get('product', '')).strip()
     if not product or len(product) > 120:
         raise ValueError('Informe um produto com até 120 caracteres.')
@@ -46,10 +47,31 @@ def add_sale(data):
         raise ValueError('A data da venda não pode estar no futuro.')
     price = money(data.get('price'))
     cost = None if data.get('cost') in (None, '') else money(data['cost'])
+    return product, quantity, price, cost, sold_on.isoformat()
+
+
+def add_sale(data):
+    values = validate_sale(data)
     with connect() as conn:
         cursor = conn.execute('INSERT INTO sales(product,quantity,price,cost,sold_on) VALUES(?,?,?,?,?)',
-                              (product, quantity, price, cost, sold_on.isoformat()))
+                              values)
         return cursor.lastrowid
+
+
+def edit_sale(sale_id, data):
+    values = validate_sale(data)
+    with connect() as conn:
+        cursor = conn.execute('UPDATE sales SET product=?,quantity=?,price=?,cost=?,sold_on=? WHERE id=?',
+                              (*values, sale_id))
+        if not cursor.rowcount:
+            raise LookupError('Venda não encontrada. Ela pode ter sido excluída em outra janela.')
+
+
+def delete_sale(sale_id):
+    with connect() as conn:
+        cursor = conn.execute('DELETE FROM sales WHERE id=?', (sale_id,))
+        if not cursor.rowcount:
+            raise LookupError('Venda não encontrada. Ela pode ter sido excluída em outra janela.')
 
 
 def dashboard(start, end):
@@ -69,9 +91,16 @@ def dashboard(start, end):
     products, days = {}, {}
     for r in rows:
         key = r['product'].casefold()
-        p = products.setdefault(key, {'name': r['product'], 'quantity': 0, 'revenue': 0})
+        p = products.setdefault(key, {'name': r['product'], 'quantity': 0, 'revenue': 0, 'known_quantity': 0, 'profit': 0})
         p['quantity'] += r['quantity']; p['revenue'] += r['quantity'] * r['price']
+        if r['cost'] is not None:
+            p['known_quantity'] += r['quantity']
+            p['profit'] += r['quantity'] * (r['price'] - r['cost'])
         days[r['sold_on']] = days.get(r['sold_on'], 0) + r['quantity'] * r['price']
+    for p in products.values():
+        p['unit_profit'] = p['profit'] / p['known_quantity'] if p['known_quantity'] else None
+        if not p['known_quantity']:
+            p['profit'] = None
     daily = [{'date': (start + timedelta(days=i)).isoformat(), 'revenue': days.get((start + timedelta(days=i)).isoformat(), 0)} for i in range(length)]
     alerts = []
     if any(r['cost'] is not None and r['price'] < r['cost'] for r in rows):
@@ -93,6 +122,7 @@ def dashboard(start, end):
             'ticket': revenue / len(rows) if rows else 0, 'profit': profit if known else None,
             'margin': margin, 'cost_count': len(known), 'change': change, 'previous_revenue': previous[0],
             'top': sorted(products.values(), key=lambda p: (-p['quantity'], -p['revenue'], p['name']))[:5],
+            'products': sorted(products.values(), key=lambda p: (p['name'].casefold(), p['name'])),
             'daily': daily, 'weekdays': sorted(weekdays, key=lambda d: -d['average']),
             'strong': max(daily, key=lambda d: d['revenue']) if rows else None,
             'weak': min(daily, key=lambda d: d['revenue']) if rows else None,
@@ -121,16 +151,44 @@ class Handler(SimpleHTTPRequestHandler):
         except (ValueError, TypeError) as error:
             self.send_json(400, {'error': str(error)})
 
+    def sale_id(self):
+        match = re.fullmatch(r'/api/sales/([1-9][0-9]*)', self.path)
+        if not match:
+            raise LookupError('Venda não encontrada.')
+        return int(match.group(1))
+
+    def read_sale(self):
+        length = int(self.headers.get('Content-Length', '0'))
+        if not 0 < length <= 8192:
+            raise ValueError('Tamanho de requisição inválido.')
+        data = json.loads(self.rfile.read(length))
+        if not isinstance(data, dict):
+            raise ValueError('Envie um objeto JSON.')
+        return data
+
+    def do_PUT(self):
+        try:
+            sale_id = self.sale_id()
+            edit_sale(sale_id, self.read_sale())
+            self.send_json(200, {'id': sale_id})
+        except LookupError as error:
+            self.send_json(404, {'error': str(error)})
+        except (ValueError, TypeError) as error:
+            self.send_json(400, {'error': str(error)})
+
+    def do_DELETE(self):
+        try:
+            sale_id = self.sale_id()
+            delete_sale(sale_id)
+            self.send_json(200, {'id': sale_id})
+        except LookupError as error:
+            self.send_json(404, {'error': str(error)})
+
     def do_POST(self):
         if self.path != '/api/sales':
             return self.send_json(404, {'error': 'Rota não encontrada.'})
         try:
-            length = int(self.headers.get('Content-Length', '0'))
-            if not 0 < length <= 8192:
-                raise ValueError('Tamanho de requisição inválido.')
-            data = json.loads(self.rfile.read(length))
-            if not isinstance(data, dict):
-                raise ValueError('Envie um objeto JSON.')
+            data = self.read_sale()
             self.send_json(201, {'id': add_sale(data)})
         except (ValueError, TypeError) as error:
             self.send_json(400, {'error': str(error)})

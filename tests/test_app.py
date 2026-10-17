@@ -61,6 +61,77 @@ class SalesTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             app.dashboard('2020-01-01','2025-01-01')
 
+    def test_product_profit_is_weighted_and_excludes_missing_cost(self):
+        self.sale(quantity=2, price='10', cost='7.44')
+        self.sale(product='CAFÉ', quantity=1, price='20', cost='10')
+        self.sale(quantity=5, cost=None)
+        self.sale(product='Sem custo', cost=None)
+        self.sale(product='Prejuízo', price='2', cost='3')
+        d = app.dashboard('2025-01-06','2025-01-06')
+        products = {p['name'].casefold(): p for p in d['products']}
+        coffee = products['café']
+        self.assertEqual(coffee['quantity'], 8)
+        self.assertEqual(coffee['known_quantity'], 3)
+        self.assertEqual(coffee['profit'], 1512)
+        self.assertEqual(coffee['unit_profit'], 504)
+        self.assertIsNone(products['sem custo']['profit'])
+        self.assertIsNone(products['sem custo']['unit_profit'])
+        self.assertEqual(products['prejuízo']['unit_profit'], -100)
+        self.assertEqual(app.dashboard('2025-01-07','2025-01-07')['products'], [])
+
+    def test_edit_and_delete_recalculate_without_duplicate(self):
+        sale_id = self.sale()
+        other_id = self.sale(product='Creatina', quantity=1)
+        app.edit_sale(sale_id, dict(product='Whey', quantity=4, price='20', cost='12', sold_on='2025-01-07'))
+        d = app.dashboard('2025-01-07','2025-01-07')
+        self.assertEqual(d['count'], 1)
+        self.assertEqual(d['sales'][0]['id'], sale_id)
+        self.assertEqual(d['revenue'], 8000)
+        self.assertEqual(d['products'][0]['unit_profit'], 800)
+        with self.assertRaises(ValueError):
+            app.edit_sale(sale_id, dict(product='Whey', quantity=0, price='20', sold_on='2025-01-07'))
+        self.assertEqual(app.dashboard('2025-01-07','2025-01-07')['revenue'], 8000)
+        app.delete_sale(sale_id)
+        self.assertEqual(app.dashboard('2025-01-07','2025-01-07')['products'], [])
+        self.assertEqual(app.dashboard('2025-01-06','2025-01-06')['sales'][0]['id'], other_id)
+        with self.assertRaises(LookupError):
+            app.delete_sale(sale_id)
+        with self.assertRaises(LookupError):
+            app.edit_sale(sale_id, dict(product='Whey', quantity=1, price='20', sold_on='2025-01-07'))
+
+    def test_http_edit_delete_and_invalid_requests(self):
+        import threading
+        import json
+        from urllib.request import Request, urlopen
+        from urllib.error import HTTPError
+        server = app.ThreadingHTTPServer(('127.0.0.1', 0), app.Handler)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        base = f'http://127.0.0.1:{server.server_port}'
+        def request(path, method, data=None):
+            raw = json.dumps(data).encode() if data is not None else None
+            req = Request(base + path, data=raw, method=method, headers={'Content-Type': 'application/json'})
+            try:
+                with urlopen(req) as r:
+                    return r.status, json.load(r)
+            except HTTPError as error:
+                return error.code, json.load(error)
+        try:
+            data = dict(product='Barra', quantity=1, price='10', cost='7.44', sold_on='2025-01-06')
+            status, created = request('/api/sales', 'POST', data)
+            self.assertEqual(status, 201)
+            path = f"/api/sales/{created['id']}"
+            data['quantity'] = 3
+            self.assertEqual(request(path, 'PUT', data)[0], 200)
+            self.assertEqual(request('/api/dashboard?start=2025-01-06&end=2025-01-06','GET')[1]['revenue'], 3000)
+            self.assertEqual(request(path, 'PUT', [1, 2])[0], 400)
+            self.assertEqual(request('/api/sales/nope', 'DELETE')[0], 404)
+            self.assertEqual(request(path, 'DELETE')[0], 200)
+            self.assertEqual(request(path, 'PUT', data)[0], 404)
+            self.assertEqual(request(path, 'DELETE')[0], 404)
+        finally:
+            server.shutdown(); server.server_close(); thread.join()
+
 
 if __name__ == '__main__':
     unittest.main()
