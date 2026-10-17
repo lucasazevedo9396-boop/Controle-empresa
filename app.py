@@ -83,6 +83,7 @@ def dashboard(start, end):
     with connect() as conn:
         rows = [dict(r) for r in conn.execute('SELECT * FROM sales WHERE sold_on BETWEEN ? AND ? ORDER BY sold_on DESC,id DESC', (start.isoformat(), end.isoformat()))]
         previous = conn.execute('SELECT COALESCE(SUM(quantity*price),0),COUNT(*) FROM sales WHERE sold_on BETWEEN ? AND ?', (prev_start.isoformat(), prev_end.isoformat())).fetchone()
+        lifetime = conn.execute('SELECT SUM(quantity*(price-cost)), COUNT(cost), COUNT(*), SUM(quantity*cost) FROM sales').fetchone()
     revenue = sum(r['quantity'] * r['price'] for r in rows)
     known = [r for r in rows if r['cost'] is not None]
     known_revenue = sum(r['quantity'] * r['price'] for r in known)
@@ -118,7 +119,9 @@ def dashboard(start, end):
         matches = [d for d in daily if date.fromisoformat(d['date']).weekday() == index]
         if matches:
             weekdays.append({'name': name, 'average': sum(d['revenue'] for d in matches) / len(matches), 'occurrences': len(matches)})
-    return {'revenue': revenue, 'quantity': sum(r['quantity'] for r in rows), 'count': len(rows),
+    return {'lifetime_profit': lifetime[0], 'lifetime_cost_count': lifetime[1], 'lifetime_count': lifetime[2],
+            'lifetime_cost': lifetime[3], 'cost': sum(r['quantity'] * r['cost'] for r in known) if known else None,
+            'revenue': revenue, 'quantity': sum(r['quantity'] for r in rows), 'count': len(rows),
             'ticket': revenue / len(rows) if rows else 0, 'profit': profit if known else None,
             'margin': margin, 'cost_count': len(known), 'change': change, 'previous_revenue': previous[0],
             'top': sorted(products.values(), key=lambda p: (-p['quantity'], -p['revenue'], p['name']))[:5],

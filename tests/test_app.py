@@ -99,6 +99,36 @@ class SalesTests(unittest.TestCase):
         with self.assertRaises(LookupError):
             app.edit_sale(sale_id, dict(product='Whey', quantity=1, price='20', sold_on='2025-01-07'))
 
+    def test_lifetime_profit_ignores_period_and_recalculates(self):
+        old_id = self.sale(sold_on='2024-12-01', quantity=2, price='10', cost='7.44')
+        new_id = self.sale(quantity=3, price='20', cost='10')
+        self.sale(product='Sem custo', cost=None)
+        d = app.dashboard('2025-01-01', '2025-01-31')
+        self.assertEqual(d['profit'], 3000)
+        self.assertEqual(d['lifetime_profit'], 3512)
+        self.assertEqual(d['lifetime_cost'], 4488)
+        self.assertEqual(d['cost'], 3000)
+        self.assertEqual(d['lifetime_count'], 3)
+        self.assertEqual(d['lifetime_cost_count'], 2)
+        self.assertEqual(app.dashboard('2023-01-01','2023-01-31')['lifetime_profit'], 3512)
+        app.edit_sale(new_id, dict(product='Barra', quantity=2, price='5', cost='10', sold_on='2025-01-06'))
+        self.assertEqual(app.dashboard('2025-01-01','2025-01-31')['lifetime_profit'], -488)
+        self.assertEqual(app.dashboard('2025-01-01','2025-01-31')['lifetime_cost'], 3488)
+        app.delete_sale(old_id)
+        self.assertEqual(app.dashboard('2025-01-01','2025-01-31')['lifetime_profit'], -1000)
+        self.assertEqual(app.dashboard('2025-01-01','2025-01-31')['lifetime_cost'], 2000)
+
+    def test_lifetime_empty_missing_and_zero_cost(self):
+        self.assertIsNone(app.dashboard('2025-01-01','2025-01-31')['lifetime_profit'])
+        self.sale(cost=None)
+        d = app.dashboard('2025-01-01','2025-01-31')
+        self.assertIsNone(d['lifetime_profit'])
+        self.assertEqual(d['lifetime_cost_count'], 0)
+        self.assertIsNone(d['lifetime_cost'])
+        self.sale(quantity=2, price='5', cost='0')
+        self.assertEqual(app.dashboard('2025-01-01','2025-01-31')['lifetime_profit'], 1000)
+        self.assertEqual(app.dashboard('2025-01-01','2025-01-31')['lifetime_cost'], 0)
+
     def test_http_edit_delete_and_invalid_requests(self):
         import threading
         import json

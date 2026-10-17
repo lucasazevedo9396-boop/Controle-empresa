@@ -21,6 +21,14 @@ async function refresh(){
   const response=await fetch('/api/dashboard?'+new URLSearchParams(selected));
   const d=await response.json();if(!response.ok)throw Error(d.error);
   $('error').textContent='';$('live').textContent='● Atualizado às '+new Date().toLocaleTimeString('pt-BR');
+  const profitText=(value,count)=>value===null?(count?'Informe os custos':brl(0)):brl(value);
+  const coverageText=(known,count)=>count?`${num(known)} de ${num(count)} vendas com custo${known<count?' • Total parcial: faltam custos em algumas vendas.':''}`:'Nenhuma venda registrada.';
+  $('lifetime-profit').textContent=profitText(d.lifetime_profit,d.lifetime_count);
+  $('lifetime-cost').textContent=profitText(d.lifetime_cost,d.lifetime_count);
+  $('period-cost').textContent=profitText(d.cost,d.count);
+  $('lifetime-coverage').textContent=coverageText(d.lifetime_cost_count,d.lifetime_count);
+  $('period-profit').textContent=profitText(d.profit,d.count);
+  $('period-profit-coverage').textContent=coverageText(d.cost_count,d.count);
   $('revenue').textContent=brl(d.revenue);$('quantity').textContent=num(d.quantity);$('count').textContent=`${num(d.count)} lançamentos de venda`;
   $('ticket').textContent=brl(d.ticket);$('profit').textContent=d.profit===null?'Sem custos':brl(d.profit);
   $('margin').textContent=d.margin===null?'Informe os custos para calcular':`Margem: ${d.margin.toFixed(1)}% • ${d.cost_count}/${d.count} registros com custo`;

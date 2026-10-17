@@ -19,6 +19,8 @@ O servidor usa porta 8000 e interface local por padrão. `PORT`, `HOST` e `SALES
 ## Recursos e critérios
 
 - Faturamento, unidades e valor médio por lançamento no período selecionado.
+- Soma do custo das mercadorias vendidas (custo unitário × quantidade), no período e em todo o histórico. Não é o total de compras de estoque: mercadorias ainda não vendidas não estão incluídas. Custos ausentes deixam o total parcial.
+- Lucro bruto acumulado de todas as vendas, independente do filtro, e soma do lucro na seção Vendas no período. Totais com custos faltantes são identificados como parciais.
 - Lucro **bruto parcial**, calculado somente nas vendas que têm custo. Despesas, impostos e frete não estão incluídos.
 - Lucro bruto por produto: total em reais e média ponderada por unidade, apenas nas unidades com custo informado. Custos faltantes aparecem como cobertura parcial; custo zero é válido.
 - Edição de produto, quantidade, preço, custo e data, sem duplicar vendas. Exclusão com confirmação; totais, ranking e lucros são recalculados.
