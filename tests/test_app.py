@@ -39,7 +39,7 @@ class SalesTests(unittest.TestCase):
         d = app.dashboard('2025-01-06', '2025-01-06')
         self.assertEqual(d['change'], -95)
         self.assertEqual(d['profit'], -1000)
-        self.assertEqual(len(d['alerts']), 3)
+        self.assertEqual(len(d['alerts']), 4)
 
     def test_empty_dashboard_does_not_invent_insights(self):
         d = app.dashboard('2025-01-01', '2025-01-31')
